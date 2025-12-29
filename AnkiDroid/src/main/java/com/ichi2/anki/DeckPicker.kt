@@ -1425,8 +1425,14 @@ open class DeckPicker :
 
     private fun processReviewResults(resultCode: Int) {
         if (resultCode == AbstractFlashcardViewer.RESULT_NO_MORE_CARDS) {
-            CongratsPage.onReviewsCompleted(this, getColUnsafe.sched.totalCount() == 0)
-            fragment?.refreshInterface()
+            lifecycleScope.launch {
+                val isZero =
+                    withContext(Dispatchers.IO) {
+                        getColUnsafe.sched.totalCount() == 0
+                    }
+                CongratsPage.onReviewsCompleted(this@DeckPicker, isZero)
+                fragment?.refreshInterface()
+            }
         }
     }
 
@@ -2023,8 +2029,6 @@ open class DeckPicker :
      * from the mSyncConflictResolutionListener if the first attempt determines that a full-sync is required.
      */
     override fun sync(conflict: ConflictResolution?) {
-        val preferences = baseContext.sharedPrefs()
-
         val hkey = Prefs.hkey
         if (hkey.isNullOrEmpty()) {
             Timber.w("User not logged in")
