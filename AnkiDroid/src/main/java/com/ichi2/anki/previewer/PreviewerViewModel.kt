@@ -45,7 +45,7 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.update
 import timber.log.Timber
 
-class PreviewerViewModel(
+open class PreviewerViewModel(
     savedStateHandle: SavedStateHandle,
 ) : CardViewerViewModel(savedStateHandle),
     ChangeManager.Subscriber {
@@ -115,9 +115,11 @@ class PreviewerViewModel(
         launchCatchingIO {
             backSideOnly.emit(!backSideOnly.value)
             if (!backSideOnly.value && showingAnswer.value) {
+                cardMediaPlayer.stop()
                 showQuestion()
                 cardMediaPlayer.autoplayAllForSide(CardSide.QUESTION)
             } else if (backSideOnly.value && !showingAnswer.value) {
+                cardMediaPlayer.stop()
                 showAnswer()
                 cardMediaPlayer.autoplayAllForSide(CardSide.ANSWER)
             }
@@ -158,6 +160,7 @@ class PreviewerViewModel(
     fun onNextButtonClick() {
         launchCatchingIO {
             if (!showingAnswer.value && !backSideOnly.value) {
+                cardMediaPlayer.stop()
                 showAnswer()
                 cardMediaPlayer.autoplayAllForSide(CardSide.ANSWER)
             } else {
@@ -175,6 +178,7 @@ class PreviewerViewModel(
             if (currentIndex.value > 0) {
                 currentIndex.update { it - 1 }
             } else if (showingAnswer.value && !backSideOnly.value) {
+                cardMediaPlayer.stop()
                 showQuestion()
             }
         }
