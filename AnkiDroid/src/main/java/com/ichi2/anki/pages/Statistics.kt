@@ -15,6 +15,7 @@
  */
 package com.ichi2.anki.pages
 
+import android.content.res.Configuration
 import android.os.Bundle
 import android.print.PrintAttributes
 import android.print.PrintManager
@@ -94,6 +95,11 @@ class Statistics :
     override fun onSaveInstanceState(outState: Bundle) {
         super.onSaveInstanceState(outState)
         outState.putString(KEY_DECK_NAME, binding.deckName.text.toString())
+    }
+
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        super.onConfigurationChanged(newConfig)
+        webViewLayout.reload()
     }
 
     /**
