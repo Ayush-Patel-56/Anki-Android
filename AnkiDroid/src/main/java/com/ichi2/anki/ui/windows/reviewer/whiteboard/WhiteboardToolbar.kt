@@ -16,6 +16,8 @@
 package com.ichi2.anki.ui.windows.reviewer.whiteboard
 
 import android.content.Context
+import android.graphics.Rect
+import android.os.Build
 import android.util.AttributeSet
 import android.view.LayoutInflater
 import android.view.MotionEvent
@@ -40,6 +42,9 @@ class WhiteboardToolbar : LinearLayout {
     private val dragHandler = DragHandler()
     private var currentAlignment: ToolbarAlignment = ToolbarAlignment.BOTTOM
 
+    private val peekSize = 6.dp.toPx(context)
+    private val handleSize = 32.dp.toPx(context)
+
     constructor(context: Context) : this(context, null)
     constructor(context: Context, attrs: AttributeSet?) : this(context, attrs, 0)
     constructor(context: Context, attrs: AttributeSet?, defStyleAttr: Int) : super(context, attrs, defStyleAttr) {
@@ -54,6 +59,10 @@ class WhiteboardToolbar : LinearLayout {
         binding.brushRecyclerView.apply {
             layoutManager = LinearLayoutManager(context, LinearLayoutManager.HORIZONTAL, false)
             adapter = brushAdapter
+        }
+
+        binding.touchHandle.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
+            updateGestureExclusion()
         }
     }
 
@@ -100,16 +109,15 @@ class WhiteboardToolbar : LinearLayout {
         }
 
         // Configure container structure (Handle + Card placement)
-        val handleSize = 32.dp.toPx(context)
         removeView(binding.touchHandle)
         removeView(binding.toolbarCard)
 
         orientation = if (isSideDocked) HORIZONTAL else VERTICAL
         val handleParams =
             if (isSideDocked) {
-                LayoutParams(handleSize, LayoutParams.MATCH_PARENT)
+                LayoutParams(handleSize.toInt(), LayoutParams.MATCH_PARENT)
             } else {
-                LayoutParams(LayoutParams.MATCH_PARENT, handleSize)
+                LayoutParams(LayoutParams.MATCH_PARENT, handleSize.toInt())
             }
 
         if (alignment == ToolbarAlignment.LEFT) {
@@ -142,6 +150,33 @@ class WhiteboardToolbar : LinearLayout {
         brushAdapter.updateSelection(activeIndex, isEraserActive)
     }
 
+    override fun onLayout(
+        changed: Boolean,
+        l: Int,
+        t: Int,
+        r: Int,
+        b: Int,
+    ) {
+        super.onLayout(changed, l, t, r, b)
+        updateGestureExclusion()
+    }
+
+    private fun updateGestureExclusion() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return
+
+        val buffer = 8.dp.toPx(context).toInt()
+        val exclusionHeight = (peekSize + handleSize).toInt()
+
+        val rect =
+            when (currentAlignment) {
+                ToolbarAlignment.LEFT -> Rect(width - exclusionHeight, -buffer, width, height + buffer)
+                ToolbarAlignment.RIGHT -> Rect(0, -buffer, exclusionHeight, height + buffer)
+                ToolbarAlignment.BOTTOM -> Rect(-buffer, 0, width + buffer, exclusionHeight)
+            }
+
+        systemGestureExclusionRects = listOf(rect)
+    }
+
     /**
      * Animates the toolbar to its hidden (peeking) state.
      */
@@ -162,8 +197,6 @@ class WhiteboardToolbar : LinearLayout {
         private var initialTranslationX = 0f
         private var initialTranslationY = 0f
         private var isDragging = false
-        private val peekSize = 6.dp.toPx(context)
-        private val handleSize = 32.dp.toPx(context)
         private val touchSlop by lazy { ViewConfiguration.get(context).scaledTouchSlop }
 
         private val maxTranslation: Float
