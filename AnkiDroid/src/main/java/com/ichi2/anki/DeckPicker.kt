@@ -783,6 +783,11 @@ open class DeckPicker :
 
         fun onFocusedDeckChanged(deckId: DeckId?) {
             val position = deckId?.let { viewModel.findDeckPosition(it) } ?: 0
+            val firstVisible = decksLayoutManager.findFirstVisibleItemPosition()
+            val lastVisible = decksLayoutManager.findLastVisibleItemPosition()
+            if (firstVisible != androidx.recyclerview.widget.RecyclerView.NO_POSITION && position in firstVisible..lastVisible) {
+                return
+            }
             // HACK: a small delay is required before scrolling works
             deckPickerBinding.decks.postDelayed({
                 decksLayoutManager.scrollToPositionWithOffset(position, deckPickerBinding.decks.height / 2)
