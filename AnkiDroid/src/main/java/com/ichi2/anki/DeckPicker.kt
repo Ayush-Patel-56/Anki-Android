@@ -78,7 +78,6 @@ import com.google.android.material.snackbar.BaseTransientBottomBar
 import com.google.android.material.snackbar.Snackbar
 import com.ichi2.anki.CollectionManager.TR
 import com.ichi2.anki.CollectionManager.withCol
-import com.ichi2.anki.CollectionManager.withOpenColOrNull
 import com.ichi2.anki.DeckPickerFloatingActionMenu.FloatingActionBarToggleListener
 import com.ichi2.anki.InitialActivity.StartupFailure
 import com.ichi2.anki.InitialActivity.StartupFailure.DBError
@@ -98,7 +97,6 @@ import com.ichi2.anki.common.time.TimeManager
 import com.ichi2.anki.common.utils.annotation.KotlinCleanup
 import com.ichi2.anki.compat.CompatHelper.Companion.getSerializableCompat
 import com.ichi2.anki.contextmenu.DeckPickerMenuContentProvider
-import com.ichi2.anki.contextmenu.MouseContextMenuHandler
 import com.ichi2.anki.databinding.ActivityHomescreenBinding
 import com.ichi2.anki.databinding.IncludeDeckPickerBinding
 import com.ichi2.anki.databinding.IncludeFloatingAddButtonBinding
@@ -137,14 +135,13 @@ import com.ichi2.anki.dialogs.SyncErrorDialog.SyncErrorDialogListener
 import com.ichi2.anki.dialogs.customstudy.CustomStudyDialog
 import com.ichi2.anki.dialogs.customstudy.CustomStudyDialog.CustomStudyAction
 import com.ichi2.anki.dialogs.customstudy.CustomStudyDialog.CustomStudyAction.Companion.REQUEST_KEY
+import com.ichi2.anki.dialogs.setDeckPickerContextMenuResultListener
 import com.ichi2.anki.export.ExportDialogFragment
 import com.ichi2.anki.filtered.FilteredDeckOptionsFragment
 import com.ichi2.anki.introduction.CollectionPermissionScreenLauncher
 import com.ichi2.anki.introduction.hasCollectionStoragePermissions
 import com.ichi2.anki.libanki.DeckId
 import com.ichi2.anki.libanki.sched.DeckNode
-import com.ichi2.anki.libanki.undoAvailable
-import com.ichi2.anki.libanki.undoLabel
 import com.ichi2.anki.mediacheck.MediaCheckFragment
 import com.ichi2.anki.observability.ChangeManager
 import com.ichi2.anki.pages.AnkiPackageImporterFragment
@@ -270,9 +267,6 @@ open class DeckPicker :
     private lateinit var deckListAdapter: DeckAdapter
     private lateinit var pullToSyncWrapper: SwipeRefreshLayout
 
-    // Right-click context menu handler using decoupled menu system
-    private lateinit var mouseContextMenuHandler: MouseContextMenuHandler
-
     private lateinit var floatingActionMenu: DeckPickerFloatingActionMenu
 
     var activeSnackBar: Snackbar? = null
@@ -290,7 +284,7 @@ open class DeckPicker :
             }
         }
     override val baseSnackbarBuilder: SnackbarBuilder = {
-        anchorView = floatingActionButtonBinding.fabMain
+        anchorView = floatingActionButtonBinding.fabMain.takeIf { it.isVisible }
         addCallback(activeSnackbarCallback)
     }
 
@@ -299,10 +293,6 @@ open class DeckPicker :
     // flag keeping track of when the app has been paused
     var activityPaused = false
         private set
-
-    /** See [OptionsMenuState]. */
-    @VisibleForTesting
-    var optionsMenuState: OptionsMenuState? = null
 
     @VisibleForTesting
     val dueTree: DeckNode?
@@ -448,49 +438,26 @@ open class DeckPicker :
         }
     }
 
-    private fun showDeckPickerContextMenu(deckId: DeckId) {
+    private fun showDeckPickerContextMenu(deckId: DeckId) =
         launchCatchingTask {
-            val (deckName, isDynamic, hasBuriedInDeck) =
-                withCol {
-                    decks.select(deckId)
-                    Triple(
-                        decks.name(deckId),
-                        decks.isFiltered(deckId),
-                        sched.haveBuried(),
-                    )
-                }
+            viewModel.selectDeck(deckId).join()
+            val menu = DeckPickerContextMenu.newInstance(deckId)
             CardBrowser.clearLastDeckId()
-            updateDeckList()
-            showDialogFragment(
-                DeckPickerContextMenu.newInstance(
-                    id = deckId,
-                    name = deckName,
-                    isDynamic = isDynamic,
-                    hasBuriedInDeck = hasBuriedInDeck,
-                ),
-            )
+            showDialogFragment(menu)
         }
-    }
 
     private fun showDeckPickerRightClickContextMenu(
         deckId: DeckId,
         x: Float,
         y: Float,
-    ) {
-        launchCatchingTask {
-            val (isDynamic, hasBuriedInDeck) =
-                withCol {
-                    decks.select(deckId)
-                    Pair(
-                        decks.isFiltered(deckId),
-                        sched.haveBuried(),
-                    )
-                }
-            updateDeckList()
-            val menuContentProvider = DeckPickerMenuContentProvider(deckId, isDynamic, hasBuriedInDeck, this@DeckPicker)
-            mouseContextMenuHandler = MouseContextMenuHandler(deckPickerBinding.deckPickerContent, menuContentProvider)
-            mouseContextMenuHandler.showContextMenu(deckPickerBinding.decks, x, y)
-        }
+    ) = launchCatchingTask {
+        viewModel.selectDeck(deckId).join()
+        DeckPickerMenuContentProvider.show(
+            deckPicker = this@DeckPicker,
+            deckId = deckId,
+            x = x,
+            y = y,
+        )
     }
 
     // ----------------------------------------------------------------------------
@@ -609,20 +576,8 @@ open class DeckPicker :
             }
         }
 
-        setFragmentResultListener(DeckPickerContextMenu.REQUEST_KEY_CONTEXT_MENU) { _, bundle ->
-            handleContextMenuSelection(
-                bundle.getSerializableCompat<DeckPickerContextMenuOption>(DeckPickerContextMenu.CONTEXT_MENU_DECK_OPTION)
-                    ?: error("Unable to retrieve selected context menu option"),
-                bundle.getLong(DeckPickerContextMenu.CONTEXT_MENU_DECK_ID, -1),
-            )
-        }
-
-        setFragmentResultListener(DeckPickerMenuContentProvider.REQUEST_KEY_CONTEXT_MENU) { _, bundle ->
-            handleContextMenuSelection(
-                bundle.getSerializableCompat<DeckPickerContextMenuOption>(DeckPickerMenuContentProvider.CONTEXT_MENU_DECK_OPTION)
-                    ?: error("Unable to retrieve selected context menu option"),
-                bundle.getLong(DeckPickerMenuContentProvider.CONTEXT_MENU_DECK_ID, -1),
-            )
+        setDeckPickerContextMenuResultListener { result ->
+            handleContextMenuSelection(result.option, result.deckId)
         }
 
         setFragmentResultListener(StudyOptionsFragment.REQUEST_STUDY_OPTIONS_STUDY) { _, _ ->
@@ -693,18 +648,7 @@ open class DeckPicker :
             ).showDialog()
         }
 
-        fun onUndoUpdated(a: Unit) {
-            launchCatchingTask {
-                withOpenColOrNull {
-                    optionsMenuState =
-                        optionsMenuState?.copy(
-                            undoLabel = undoLabel(),
-                            undoAvailable = undoAvailable(),
-                        )
-                }
-                invalidateOptionsMenu()
-            }
-        }
+        fun onOptionsMenuUpdated(unused: OptionsMenuState) = invalidateOptionsMenu()
 
         fun onStudiedTodayChanged(studiedToday: String) {
             deckPickerBinding.reviewSummaryTextView.text = studiedToday
@@ -842,7 +786,7 @@ open class DeckPicker :
         viewModel.flowOfDisableShortcuts.launchCollectionInLifecycleScope(::disableDeckAndChildrenShortcuts)
         viewModel.onError.launchCollectionInLifecycleScope(::onError)
         viewModel.flowOfPromptUserToUpdateScheduler.launchCollectionInLifecycleScope(::onPromptUserToUpdateScheduler)
-        viewModel.flowOfUndoUpdated.launchCollectionInLifecycleScope(::onUndoUpdated)
+        viewModel.flowOfOptionsMenuState.filterNotNull().launchCollectionInLifecycleScope(::onOptionsMenuUpdated)
         viewModel.flowOfStudiedTodayStats.launchCollectionInLifecycleScope(::onStudiedTodayChanged)
         viewModel.flowOfDeckListInInitialState.filterNotNull().launchCollectionInLifecycleScope(::onCollectionStatusChanged)
         viewModel.flowOfCardsDue.launchCollectionInLifecycleScope(::onCardsDueChanged)
@@ -1092,7 +1036,7 @@ open class DeckPicker :
         // into CollectionManager, and awaiting that.
         createMenuJob =
             launchCatchingTask {
-                updateMenuState()
+                viewModel.refreshMenuState()
                 updateSearchVisibilityFromState(menu)
                 updateDeckRelatedMenuItems(menu)
                 updateMenuFromState(menu)
@@ -1175,7 +1119,7 @@ open class DeckPicker :
     }
 
     fun updateMenuFromState(menu: Menu) {
-        optionsMenuState?.run {
+        viewModel.optionsMenuState?.run {
             updateUndoLabelFromState(menu.findItem(R.id.action_undo), undoLabel, undoAvailable)
             updateSyncIconFromState(menu.findItem(R.id.action_sync), this)
         }
@@ -1186,7 +1130,7 @@ open class DeckPicker :
      * Shows/hides deck related menu items based on the collection being empty or not.
      */
     private fun updateDeckRelatedMenuItems(menu: Menu) {
-        optionsMenuState?.run {
+        viewModel.optionsMenuState?.run {
             menu.findItem(R.id.action_deck_rename)?.isVisible = !isColEmpty
             menu.findItem(R.id.action_deck_delete)?.isVisible = !isColEmpty
             // added to the menu by StudyOptionsFragment
@@ -1195,7 +1139,7 @@ open class DeckPicker :
     }
 
     private fun updateSearchVisibilityFromState(menu: Menu) {
-        optionsMenuState?.run {
+        viewModel.optionsMenuState?.run {
             menu.findItem(R.id.deck_picker_action_filter)?.isVisible = searchIcon
         }
     }
@@ -1245,11 +1189,6 @@ open class DeckPicker :
                     .replaceBadge(provider)
             }
         }
-    }
-
-    @VisibleForTesting
-    suspend fun updateMenuState() {
-        optionsMenuState = viewModel.updateMenuState()
     }
 
     override fun onOptionsItemSelected(item: MenuItem): Boolean {
@@ -2263,11 +2202,7 @@ open class DeckPicker :
         changes: OpChanges,
         handler: Any?,
     ) {
-        lifecycleScope.launch {
-            updateMenuState()
-            // undo state may have changed
-            invalidateOptionsMenu()
-        }
+        lifecycleScope.launch { viewModel.refreshMenuState() }
         if (changes.studyQueues && handler !== this && handler !== viewModel) {
             if (!activityPaused) {
                 // No need to update while the activity is paused, because `onResume` calls `refreshState` that calls `updateDeckList`.
