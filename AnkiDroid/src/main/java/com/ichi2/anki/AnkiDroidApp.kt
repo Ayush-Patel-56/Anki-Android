@@ -35,11 +35,11 @@ import androidx.fragment.app.FragmentActivity
 import androidx.lifecycle.MutableLiveData
 import anki.collection.OpChanges
 import com.ichi2.anki.AnkiDroidApp.Companion.sharedPreferencesTestingOverride
-import com.ichi2.anki.CrashReportService.sendExceptionReport
 import com.ichi2.anki.analytics.UsageAnalytics
 import com.ichi2.anki.browser.SharedPreferencesLastDeckIdRepository
 import com.ichi2.anki.common.annotations.LegacyNotifications
 import com.ichi2.anki.common.annotations.NeedsTest
+import com.ichi2.anki.common.crashreporting.CrashReportService.sendExceptionReport
 import com.ichi2.anki.common.utils.annotation.KotlinCleanup
 import com.ichi2.anki.compat.CompatHelper
 import com.ichi2.anki.contextmenu.AnkiCardContextMenu
@@ -62,10 +62,12 @@ import com.ichi2.anki.ui.dialogs.ActivityAgnosticDialogs
 import com.ichi2.utils.AdaptionUtil
 import com.ichi2.utils.ExceptionUtil
 import com.ichi2.utils.LanguageUtil
+import com.ichi2.utils.LanguageUtil.withAppLocale
 import com.ichi2.utils.Permissions
 import com.ichi2.utils.setWebContentsDebuggingEnabled
 import com.ichi2.widget.cardanalysis.CardAnalysisWidget
 import com.ichi2.widget.deckpicker.DeckPickerWidget
+import com.ichi2.widget.restoreRecurringAlarms
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -134,7 +136,7 @@ open class AnkiDroidApp :
         // Ensures any change is propagated to widgets
         ChangeManager.subscribe(this)
 
-        CrashReportService.initialize(this)
+        initializeAcraCrashReporter()
         val logType = LogType.value
         when (logType) {
             LogType.DEBUG -> Timber.plant(DebugTree())
@@ -165,7 +167,7 @@ open class AnkiDroidApp :
         }
 
         // Stop after analytics and logging are initialised.
-        if (CrashReportService.isProperServiceProcess()) {
+        if (isAcraSenderProcess()) {
             Timber.d("Skipping AnkiDroidApp.onCreate from ACRA sender process")
             return
         }
@@ -201,17 +203,20 @@ open class AnkiDroidApp :
 
         initializeAnkiDroidDirectory()
 
+        val context = this.withAppLocale()
         if (Prefs.newReviewRemindersEnabled) {
             Timber.i("Setting review reminder notifications if they have not already been set")
-            AlarmManagerService.scheduleAllNotifications(applicationContext)
+            AlarmManagerService.scheduleAllNotifications(context)
         } else {
             // Register for notifications
             Timber.i("AnkiDroidApp: Starting Services")
-            notifications.observeForever { NotificationService.triggerNotificationFor(this) }
+            notifications.observeForever { NotificationService.triggerNotificationFor(context) }
         }
 
         // listen for day rollover: time + timezone changes
         DayRolloverHandler.listenForRolloverEvents(this)
+
+        restoreRecurringAlarms(this)
 
         registerActivityLifecycleCallbacks(
             object : ActivityLifecycleCallbacks {

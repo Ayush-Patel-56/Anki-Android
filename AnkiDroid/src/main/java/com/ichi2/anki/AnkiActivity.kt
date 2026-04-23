@@ -57,10 +57,12 @@ import com.ichi2.anim.ActivityTransitionAnimation.Direction
 import com.ichi2.anim.ActivityTransitionAnimation.Direction.DEFAULT
 import com.ichi2.anim.ActivityTransitionAnimation.Direction.NONE
 import com.ichi2.anki.analytics.UsageAnalytics
+import com.ichi2.anki.android.AnkiBroadcastReceiver
 import com.ichi2.anki.android.input.ShortcutGroup
 import com.ichi2.anki.android.input.ShortcutGroupProvider
 import com.ichi2.anki.android.input.shortcut
 import com.ichi2.anki.common.annotations.LegacyNotifications
+import com.ichi2.anki.common.crashreporting.CrashReportService
 import com.ichi2.anki.common.utils.annotation.KotlinCleanup
 import com.ichi2.anki.compat.CompatHelper
 import com.ichi2.anki.compat.CompatHelper.Companion.registerReceiverCompat
@@ -245,8 +247,8 @@ open class AnkiActivity(
             return
         }
         broadcastReceiver =
-            object : BroadcastReceiver() {
-                override fun onReceive(
+            object : AnkiBroadcastReceiver() {
+                override fun onReceiveBroadcast(
                     context: Context,
                     intent: Intent,
                 ) {

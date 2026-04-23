@@ -93,6 +93,7 @@ import com.ichi2.anki.android.back.exitViaDoubleTapBackCallback
 import com.ichi2.anki.android.input.ShortcutGroup
 import com.ichi2.anki.android.input.shortcut
 import com.ichi2.anki.common.annotations.NeedsTest
+import com.ichi2.anki.common.crashreporting.CrashReportService
 import com.ichi2.anki.common.time.TimeManager
 import com.ichi2.anki.common.utils.annotation.KotlinCleanup
 import com.ichi2.anki.compat.CompatHelper.Companion.getSerializableCompat
@@ -609,6 +610,7 @@ open class DeckPicker :
     @Suppress("UNUSED_PARAMETER")
     private fun setupFlows() {
         fun onDeckDeleted(result: DeckDeletionResult) {
+            floatingActionButtonBinding.fabMain.isVisible = true
             showSnackbar(result.toHumanReadableString(), Snackbar.LENGTH_SHORT) {
                 setAction(R.string.undo) { undo() }
             }
@@ -1086,6 +1088,7 @@ open class DeckPicker :
                     Timber.i("DeckPicker:: SearchItem opened")
                     // Hide the floating action button if it is visible
                     floatingActionMenu.hideFloatingActionButton()
+                    activeSnackBar?.anchorView = null
                     return true
                 }
 
@@ -1094,6 +1097,7 @@ open class DeckPicker :
                     Timber.i("DeckPicker:: SearchItem closed")
                     // Show the floating action button if it is hidden
                     floatingActionMenu.showFloatingActionButton()
+                    activeSnackBar?.anchorView = floatingActionButtonBinding.fabMain
                     return true
                 }
             },
@@ -1207,6 +1211,7 @@ open class DeckPicker :
             }
             R.id.action_sync -> {
                 Timber.i("DeckPicker:: Sync button pressed")
+                toolbarSearchItem?.collapseActionView()
                 val actionProvider = MenuItemCompat.getActionProvider(item) as? SyncActionProvider
                 if (actionProvider?.isProgressShown == true) {
                     launchCatchingTask {
@@ -1749,11 +1754,11 @@ open class DeckPicker :
             Timber.d("doInBackgroundRepairCollection")
             val result =
                 withProgress(resources.getString(R.string.backup_repair_deck_progress)) {
-                    withCol {
-                        Timber.i("RepairCollection: Closing collection")
-                        close()
-                        BackupManager.repairCollection(this@withCol)
-                    }
+                    Timber.i("RepairCollection: Closing collection")
+                    CollectionManager.ensureClosed()
+                    val colFile =
+                        CollectionManager.collectionPathInValidFolder().requireDiskBasedCollection().colDb
+                    BackupManager.repairCollection(colFile)
                 }
             if (!result) {
                 showThemedToast(this@DeckPicker, resources.getString(R.string.deck_repair_error), true)
