@@ -39,6 +39,7 @@ import com.ichi2.widget.AppWidgetId
 import com.ichi2.widget.AppWidgetId.Companion.INVALID_APPWIDGET_ID
 import com.ichi2.widget.AppWidgetId.Companion.getAppWidgetId
 import com.ichi2.widget.AppWidgetIds
+import com.ichi2.widget.DayRolloverAlarm
 import com.ichi2.widget.cancelRecurringAlarm
 import com.ichi2.widget.getAppWidgetIdsEx
 import com.ichi2.widget.setRecurringAlarm
@@ -239,6 +240,11 @@ class DeckPickerWidget : AnalyticsWidgetProvider() {
         }
     }
 
+    override fun onEnabled(context: Context) {
+        super.onEnabled(context)
+        DayRolloverAlarm.scheduleNext(context)
+    }
+
     override fun performUpdate(
         context: Context,
         appWidgetManager: AppWidgetManager,
@@ -337,7 +343,7 @@ class DeckPickerWidget : AnalyticsWidgetProvider() {
                 }
             }
             AppWidgetManager.ACTION_APPWIDGET_OPTIONS_CHANGED -> {
-                // TODO: #17151: not yet handled. Exists to stop ACRA errors
+                Timber.d("ACTION_APPWIDGET_OPTIONS_CHANGED received from DeckPickerWidget")
             }
             AppWidgetManager.ACTION_APPWIDGET_ENABLED -> {
                 Timber.d("Widget enabled")

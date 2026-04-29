@@ -31,6 +31,7 @@ import com.ichi2.anki.libanki.NoteTypeNameID
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.filterNotNull
@@ -78,11 +79,27 @@ class CardBrowserSearchViewModel(
             initialValue = "",
         )
 
+    val isHistoryExpandedFlow = savedStateHandle.getMutableStateFlow(STATE_HISTORY_EXPANDED, false)
+
     val searchHistoryFlow =
         MutableStateFlow<SearchHistoryItems>(
             SearchHistoryItems.Loading(searchHistoryManager.entries),
         )
     val searchHistoryAvailableFlow = searchHistoryFlow.map { it.isNotEmpty() }
+
+    val displayedSearchHistoryFlow: StateFlow<SearchHistoryItems> =
+        combine(searchHistoryFlow, isHistoryExpandedFlow) { items, expanded ->
+            if (expanded) items else items.truncated(MAX_SEARCH_HISTORY_ENTRIES)
+        }.stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.Eagerly,
+            initialValue = searchHistoryFlow.value,
+        )
+
+    val showHistoryToggleFlow =
+        searchHistoryFlow.map {
+            it.entryToSearchString.size > MAX_SEARCH_HISTORY_ENTRIES
+        }
 
     val closeSearchViewFlow = MutableSharedFlow<Unit>(extraBufferCapacity = 1, replay = 1)
 
@@ -194,6 +211,10 @@ class CardBrowserSearchViewModel(
         advancedSearchFlow.value = !advancedSearchFlow.value
     }
 
+    fun toggleHistoryExpanded() {
+        isHistoryExpandedFlow.value = !isHistoryExpandedFlow.value
+    }
+
     /**
      * Appends [searchText] to the current temporary advances search text
      */
@@ -214,13 +235,15 @@ class CardBrowserSearchViewModel(
     fun onSearchTextChanged(searchText: String) {
         Timber.v("onSearchTextChanged '%s'", searchText)
 
+        val sanitizedText = searchText.replace("\n", " ")
+
         // move from system back to 'user'
         updateFilterState { it.copy() }
 
         if (advancedSearchFlow.value) {
-            advancedSearchTextFlow.value = searchText
+            advancedSearchTextFlow.value = sanitizedText
         } else {
-            basicSearchTextFlow.value = searchText
+            basicSearchTextFlow.value = sanitizedText
         }
     }
 
@@ -340,6 +363,12 @@ class CardBrowserSearchViewModel(
         abstract val entryToSearchString: List<Pair<SearchHistoryEntry, SearchString?>>
 
         fun isNotEmpty() = entryToSearchString.isNotEmpty()
+
+        fun truncated(max: Int): SearchHistoryItems =
+            when (this) {
+                is Loading -> Loading(input.take(max))
+                is Loaded -> Loaded(entryToSearchString.take(max))
+            }
     }
 
     /** Wraps [SearchFilters] so sync updates do not trigger a search */
@@ -360,6 +389,10 @@ class CardBrowserSearchViewModel(
         private const val STATE_ADVANCED_SEARCH_ENABLED = "advancedSearch"
         private const val STATE_BASIC_SEARCH_TEXT = "basicSearchText"
         private const val STATE_ADVANCED_SEARCH_TEXT = "advancedSearchText"
+        private const val STATE_HISTORY_EXPANDED = "historyExpanded"
+
+        /** Limits the number of history items, so controls appear below without scrolling */
+        const val MAX_SEARCH_HISTORY_ENTRIES = 5
     }
 }
 
